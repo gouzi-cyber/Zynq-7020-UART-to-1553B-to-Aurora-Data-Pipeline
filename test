@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+简化版1553B测试工具 - COM5
+数据流：UART → 1553B → Aurora（固定流程）
+不需要发送模式切换命令，直接发送数据！
+"""
+
+import serial
+import time
+
+# =====================================================
+# ✅ 已配置为你的COM口：COM5
+# =====================================================
+COM_PORT = 'COM5'
+BAUD_RATE = 115200
+
+
+# =====================================================
+
+def open_serial():
+    """打开串口"""
+    try:
+        ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
+        print(f"✓ 串口已打开: {COM_PORT}")
+        time.sleep(0.1)
+        return ser
+    except Exception as e:
+        print(f"❌ 无法打开串口: {e}")
+        print("\n请检查:")
+        print("  1. COM5是否被其他程序占用")
+        print("  2. CH340是否插好")
+        return None
+
+
+def send_bytes(ser, data, description=""):
+    """发送字节数据"""
+    if isinstance(data, str):
+        data = bytes.fromhex(data.replace(' ', ''))
+    ser.write(data)
+    hex_str = ' '.join([f'{b:02X}' for b in data])
+    print(f"→ {description}: {hex_str}")
+    time.sleep(0.05)
+
+
+def send_1553b_command(ser, rt_addr, tr_bit, sub_addr, word_count):
+    """发送1553B命令字
+
+    Args:
+        rt_addr: RT地址 (0-31)
+        tr_bit: T/R位 (0=接收, 1=发送)
+        sub_addr: 子地址 (0-31)
+        word_count: 字计数 (0-31)
+    """
+    # 构造16bit命令字
+    cmd_word = ((rt_addr & 0x1F) << 11) | \
+               ((tr_bit & 0x1) << 10) | \
+               ((sub_addr & 0x1F) << 5) | \
+               (word_count & 0x1F)
+
+    high = (cmd_word >> 8) & 0xFF
+    low = cmd_word & 0xFF
+
+    print(f"\n[1553B命令字]")
+    print(f"  RT地址: {rt_addr}")
+    print(f"  T/R位: {tr_bit} ({'发送' if tr_bit else '接收'})")
+    print(f"  子地址: {sub_addr}")
+    print(f"  字计数: {word_count if word_count else 32}")
+    print(f"  命令字: 0x{cmd_word:04X}")
+
+    send_bytes(ser, f"{high:02X} {low:02X}", f"命令字")
+    time.sleep(0.1)
+
+
+def send_data_word(ser, data_word):
+    """发送1个16bit数据字"""
+    high = (data_word >> 8) & 0xFF
+    low = data_word & 0xFF
+    send_bytes(ser, f"{high:02X} {low:02X}", f"数据字: 0x{data_word:04X}")
+    time.sleep(0.05)
+
+
+def test1_basic():
+    """测试1：发送命令字和2个数据字"""
+    print("\n" + "=" * 60)
+    print("测试1：基本传输（命令字 + 2个数据字）")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        # 发送命令字：RT=5, 接收, 子地址=10, 字计数=2
+        send_1553b_command(ser, rt_addr=5, tr_bit=0, sub_addr=10, word_count=2)
+
+        # 发送2个数据字
+        print("\n[数据字]")
+        send_data_word(ser, 0xABCD)
+        send_data_word(ser, 0x1234)
+
+        print("\n✓ 测试完成！")
+        print("\n预期结果：")
+        print("  - 1553B接收到命令字和2个数据字")
+        print("  - Aurora接口输出0xABCD和0x1234")
+
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def test2_multi_data():
+    """测试2：发送多个数据字"""
+    print("\n" + "=" * 60)
+    print("测试2：连续传输（命令字 + 5个数据字）")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        # 发送命令字：RT=1, 接收, 子地址=5, 字计数=5
+        send_1553b_command(ser, rt_addr=1, tr_bit=0, sub_addr=5, word_count=5)
+
+        # 连续发送5个数据字
+        print("\n[数据字]")
+        for i in range(5):
+            data = 0x1000 + i
+            send_data_word(ser, data)
+            time.sleep(0.08)
+
+        print("\n✓ 测试完成！")
+        print("\n预期结果：")
+        print("  - Aurora接口连续输出5个数据字")
+        print("  - 0x1000, 0x1001, 0x1002, 0x1003, 0x1004")
+
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def test3_pattern():
+    """测试3：发送固定测试图案"""
+    print("\n" + "=" * 60)
+    print("测试3：测试图案（用于验证数据完整性）")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        # 命令字：RT=0, 接收, 子地址=1, 字计数=4
+        send_1553b_command(ser, rt_addr=0, tr_bit=0, sub_addr=1, word_count=4)
+
+        # 发送特定测试图案
+        print("\n[测试图案]")
+        test_patterns = [0x5555, 0xAAAA, 0xFF00, 0x00FF]
+        for i, pattern in enumerate(test_patterns):
+            send_data_word(ser, pattern)
+            print(f"  图案{i + 1}: 0x{pattern:04X} (二进制: {pattern:016b})")
+            time.sleep(0.08)
+
+        print("\n✓ 测试完成！")
+        print("\n说明：这些是特殊的测试图案，便于用示波器观察")
+
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def quick_test():
+    """快速测试：一键完成"""
+    print("\n" + "=" * 60)
+    print("快速测试：自动发送完整数据流")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        print("\n正在执行自动测试...\n")
+
+        # 发送命令字
+        print("[步骤1] 发送命令字")
+        send_1553b_command(ser, rt_addr=5, tr_bit=0, sub_addr=10, word_count=3)
+
+        # 发送数据字
+        print("\n[步骤2] 发送3个数据字")
+        send_data_word(ser, 0x1111)
+        send_data_word(ser, 0x2222)
+        send_data_word(ser, 0x3333)
+
+        print("\n✓✓✓ 快速测试完成 ✓✓✓")
+        print("\n预期结果：")
+        print("  1. FPGA接收命令字0x2A43")
+        print("  2. FPGA接收3个数据字")
+        print("  3. Aurora输出：0x1111 → 0x2222 → 0x3333")
+
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def custom_test():
+    """自定义测试"""
+    print("\n" + "=" * 60)
+    print("自定义测试：手动输入参数")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        # 输入命令字参数
+        print("\n请输入1553B命令字参数：")
+        rt = int(input("RT地址 (0-31): "))
+        tr = int(input("T/R位 (0=接收, 1=发送): "))
+        sub = int(input("子地址 (0-31): "))
+        cnt = int(input("字计数 (1-31): "))
+
+        # 发送命令字
+        send_1553b_command(ser, rt, tr, sub, cnt)
+
+        # 输入数据字
+        print(f"\n请输入{cnt}个数据字（16进制，如ABCD）：")
+        for i in range(cnt):
+            data_str = input(f"数据字{i + 1}: ").strip()
+            data = int(data_str, 16)
+            send_data_word(ser, data)
+
+        print("\n✓ 自定义测试完成！")
+
+    except ValueError as e:
+        print(f"❌ 输入错误: {e}")
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def continuous_send():
+    """连续发送模式：持续发送数据用于压力测试"""
+    print("\n" + "=" * 60)
+    print("连续发送模式：循环发送数据（按Ctrl+C停止）")
+    print("=" * 60)
+
+    ser = open_serial()
+    if not ser:
+        return
+
+    try:
+        count = 0
+        while True:
+            count += 1
+            print(f"\n[第{count}轮传输]")
+
+            # 发送命令字
+            send_1553b_command(ser, rt_addr=1, tr_bit=0, sub_addr=1, word_count=4)
+
+            # 发送4个递增的数据字
+            base = (count - 1) * 4
+            for i in range(4):
+                data = 0x1000 + base + i
+                send_data_word(ser, data)
+                time.sleep(0.05)
+
+            time.sleep(0.5)
+
+    except KeyboardInterrupt:
+        print(f"\n\n停止发送，共完成{count}轮传输")
+    finally:
+        ser.close()
+        print("\n✓ 串口已关闭")
+
+
+def main():
+    """主菜单"""
+    print("""
+╔═══════════════════════════════════════════════════════════╗
+║     简化版1553B测试工具 - 固定流程                      ║
+║     数据流：UART → 1553B → Aurora                       ║
+╚═══════════════════════════════════════════════════════════╝
+    """)
+
+    print(f"✓ COM口: {COM_PORT}")
+    print(f"✓ 波特率: {BAUD_RATE}")
+    print(f"✓ 数据流: UART → 1553B → Aurora (固定)\n")
+
+    while True:
+        print("\n" + "=" * 60)
+        print("请选择测试项目：")
+        print("=" * 60)
+        print("  0. 快速测试（推荐！自动完成）")
+        print("  1. 测试1：基本传输（2个数据字）")
+        print("  2. 测试2：连续传输（5个数据字）")
+        print("  3. 测试3：测试图案（验证数据完整性）")
+        print("  4. 自定义测试（手动输入）")
+        print("  5. 连续发送模式（压力测试）")
+        print("  q. 退出")
+        print("=" * 60)
+
+        choice = input("\n请输入选项: ").strip().lower()
+
+        if choice == 'q':
+            print("\n再见！")
+            break
+        elif choice == '0':
+            quick_test()
+        elif choice == '1':
+            test1_basic()
+        elif choice == '2':
+            test2_multi_data()
+        elif choice == '3':
+            test3_pattern()
+        elif choice == '4':
+            custom_test()
+        elif choice == '5':
+            continuous_send()
+        else:
+            print("\n❌ 无效选项！")
+
+        input("\n按回车键继续...")
+
+
+if __name__ == '__main__':
+    print("\n✓ 简化版：数据自动通过1553B处理")
+    print("✓ 不需要发送模式切换命令")
+    print("✓ 直接发送命令字和数据字即可\n")
+
+    print("准备工作检查：")
+    print("  1. ✓ CH340已插入（COM5）")
+    print("  2. ✓ FPGA已下载bit文件")
+    print("  3. ✓ 硬件连接正确")
+    print("  4. ✓ 关闭其他串口程序\n")
+
+    input("按回车键开始...\n")
+
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n用户中断")
+    except Exception as e:
+        print(f"\n❌ 错误: {e}")
+        import traceback
+
+        traceback.print_exc()
