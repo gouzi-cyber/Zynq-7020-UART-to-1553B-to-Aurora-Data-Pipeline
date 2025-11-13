@@ -1,0 +1,109 @@
+# Zynq-7020 UART to 1553B to Aurora Data Pipeline
+
+## 📋 项目简介
+
+本项目在Xilinx Zynq-7020 FPGA上实现了一个完整的数据通路系统：PC通过CH340串口芯片发送数据，经UART接收、1553B协议处理、8B/10B编码后，通过自实现的Aurora协议以高速串行方式输出。
+
+**核心特点：**
+- ✅ 纯逻辑实现Aurora协议，无需购买IP授权
+- ✅ 真正的8B/10B编码实现（非简单位宽转换）
+- ✅ 完整的1553B协议处理（命令字、数据字）
+- ✅ 集成ILA调试核心，无需示波器
+- ✅ 资源占用小（<4% LUT）
+
+## 🏗️ 系统架构
+
+```
+PC(CH340) → UART(115200) → 字节累积 → 1553B处理 → Aurora发送器 → 串行输出
+   8bit        8bit          8→16bit      16bit      8B/10B编码     tx_p/tx_n
+```
+
+## 📊 资源使用报告
+
+### FPGA资源占用（Zynq-7020）
+
+| 资源类型 | 使用量 | 可用量 | 占用率 |
+|---------|--------|--------|--------|
+| LUT     | 1,885  | 53,200 | 3.54%  |
+| LUTRAM  | 182    | 17,400 | 1.05%  |
+| FF      | 3,183  | 106,400| 2.99%  |
+| BRAM    | 7      | 140    | 5.00%  |
+| IO      | 15     | 125    | 12.00% |
+
+### 时序性能
+
+| 指标 | 数值 | 状态 |
+|------|------|------|
+| 工作时钟 | 50 MHz | ✅ |
+| WNS | 6.879 ns | ✅ 满足 |
+| WHS | 0.059 ns | ✅ 满足 |
+| 失败端点 | 0 | ✅ 通过 |
+
+## 🚀 性能指标
+
+- **UART波特率：** 115,200 bps
+- **串行输出速率：** 50 Mbps
+- **有效数据速率：** ~16 Mbps
+- **端到端延迟：** <1 ms
+
+## 📁 项目结构
+
+```
+zynq7020-1553b-aurora/
+├── rtl/                      # Verilog源码
+│   ├── top_system_zynq7020.v
+│   ├── uart_rx.v
+│   ├── simple_1553b_core.v
+│   ├── encoder_8b10b_real.v
+│   └── aurora_tx_simple.v
+├── constraints/              # 约束文件
+│   └── constrains_final.xdc
+├── test/                     # 测试脚本
+│   └── test_simple.py
+└── docs/                     # 文档和截图
+```
+
+## 🔧 快速开始
+
+### 1. 克隆仓库
+```bash
+git clone https://github.com/your-username/zynq7020-1553b-aurora.git
+```
+
+### 2. Vivado工程
+- 添加rtl目录下所有.v文件
+- 添加约束文件
+- 配置ILA（11个探针）
+- 综合 → 实现 → 生成bit文件
+
+### 3. 运行测试
+```bash
+pip install pyserial
+python test/test_simple.py
+```
+
+## 🧪 验证结果
+
+使用ILA捕获的波形验证：
+- ✅ UART接收正常
+- ✅ 16bit数据累积正确
+- ✅ 1553B处理成功
+- ✅ Aurora输出有效
+
+## 📖 核心模块
+
+1. **uart_rx.v** - UART接收（115200波特率）
+2. **simple_1553b_core.v** - 1553B协议处理
+3. **encoder_8b10b_real.v** - 8B/10B编码
+4. **aurora_tx_simple.v** - Aurora帧封装和串行化
+
+## 📜 开源协议
+
+MIT License
+
+## 🙏 致谢
+
+基于Xilinx Vivado、IEEE 802.3标准、MIL-STD-1553B协议
+
+---
+⭐ 如果有帮助，请给个Star！
